@@ -1,4 +1,4 @@
-"""Deal Contract Risk Radar — deterministic, local, no-API contract screening."""
+"""Deal Risk Radar — deterministic, local, no-API contract screening."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import streamlit as st
 from docx import Document
 from pypdf import PdfReader
 
-APP_NAME = "Deal Contract Risk Radar"
+APP_NAME = "Deal Risk Radar"
 DISCLAIMER = (
     "This is a deterministic first-pass commercial diligence tool, not legal advice. "
     "Qualified counsel must verify material conclusions before a deal or signing decision."
@@ -33,7 +33,7 @@ CATEGORY_PATTERNS = {
 }
 
 RULES = [
-    ("Change of Control / Assignment", "RED", r"\bchange of control\b.{0,180}\b(terminate|termination|consent)\b", "Transaction consent or termination trigger", "An acquisition or financing may require counterparty consent or allow termination.", "Confirm consent requirements and obtain a transaction-specific waiver or consent.", "Corporate development and legal"),
+    ("Change of Control / Assignment", "RED", r"\bchange of control\b.{0,180}\b(terminate|termination|consent)\b|\b(terminate|termination|consent)\b.{0,180}\bchange of control\b", "Transaction consent or termination trigger", "An acquisition or financing may require counterparty consent or allow termination.", "Confirm consent requirements and obtain a transaction-specific waiver or consent.", "Corporate development and legal"),
     ("Change of Control / Assignment", "AMBER", r"\bassignment\b.{0,180}\bprior written consent\b", "Assignment requires consent", "A transfer of the agreement may be restricted after a transaction.", "Check whether the transaction structure triggers this assignment restriction.", "Legal"),
     ("Termination / Renewal", "RED", r"\bimmediate termination\b", "Immediate termination right", "The counterparty may have an unusually fast exit route.", "Validate trigger scope and revenue/transition exposure.", "Commercial and legal"),
     ("Termination / Renewal", "AMBER", r"\btermination for convenience\b", "Termination for convenience", "Revenue may be cancellable before the planned contract term.", "Model churn and committed-cost exposure; consider notice and wind-down protection.", "Commercial"),
@@ -42,16 +42,32 @@ RULES = [
     ("Revenue / Payment", "AMBER", r"\bnet\s+(?:[6-8]\d)\b", "Long payment terms", "Payment terms exceed a typical short-cycle commercial position.", "Confirm margin and cash-flow impact.", "Finance"),
     ("Pricing / MFN / Exclusivity", "RED", r"\bexclusiv", "Exclusivity restriction", "Exclusivity can constrain future customers, channels, or product strategy.", "Confirm scope, duration, carve-outs, and revenue trade-off.", "Commercial leadership and legal"),
     ("Pricing / MFN / Exclusivity", "AMBER", r"\b(most favou?red|MFN)\b", "Most-favoured-customer pricing", "MFN rights can compress margins or require future repricing.", "Identify affected products, customers, and pricing mechanics.", "Commercial and finance"),
-    ("Limitation of Liability", "RED", r"\b(unlimited|uncapped)\b.{0,160}\bliabilit", "Potentially uncapped liability", "Loss exposure may exceed the expected economics of the agreement.", "Escalate cap and carve-out structure for legal and insurance review.", "Legal and insurance"),
+    ("Limitation of Liability", "RED", r"\b(unlimited|uncapped)\b.{0,160}\bliabilit|\bliabilit.{0,160}\b(unlimited|uncapped)\b", "Potentially uncapped liability", "Loss exposure may exceed the expected economics of the agreement.", "Escalate cap and carve-out structure for legal and insurance review.", "Legal and insurance"),
     ("Limitation of Liability", "AMBER", r"\bliability\b.{0,160}\b(?:five|5)\s*(?:x|times)\b", "Elevated liability cap", "A high cap may create exposure disproportionate to contract value.", "Compare cap to revenue, insurance, and deal-risk tolerance.", "Legal and finance"),
     ("Indemnity", "AMBER", r"\bindemnif", "Indemnity obligation", "Indemnity can shift third-party, IP, privacy, or operational loss exposure.", "Confirm scope, defence control, exclusions, and cap interaction.", "Legal"),
     ("Intellectual Property", "RED", r"\b(customer|client)\b.{0,180}\b(background IP|pre[- ]existing|tools|methodolog)", "Background IP ownership risk", "Provider reusable technology or pre-existing IP may be exposed to ownership claims.", "Preserve provider background IP and reusable tools expressly.", "IP counsel"),
-    ("Data Protection / Security", "RED", r"\b(unlimited|uncapped)\b.{0,160}\b(data breach|security incident|personal data)\b", "Uncapped data incident exposure", "Privacy/security events may carry uncapped financial exposure.", "Escalate privacy, security, insurance, and liability cap review.", "Privacy, security, and legal"),
+    ("Data Protection / Security", "RED", r"\b(unlimited|uncapped)\b.{0,160}\b(data breach|security incident|personal data)\b|\b(data breach|security incident|personal data)\b.{0,160}\b(unlimited|uncapped)\b", "Uncapped data incident exposure", "Privacy/security events may carry uncapped financial exposure.", "Escalate privacy, security, insurance, and liability cap review.", "Privacy, security, and legal"),
     ("Data Protection / Security", "AMBER", r"\b(?:24|twenty[- ]four)\s*hours?\b.{0,160}\b(?:breach|incident|security)\b", "24-hour incident notice", "A short notice obligation may be difficult to meet operationally.", "Validate incident response capability and notification trigger.", "Security and privacy"),
-    ("Audit / Compliance", "RED", r"\bunlimited\b.{0,160}\baudit", "Unlimited audit right", "Repeated or broad audits can disrupt operations and expose confidential systems.", "Limit audit frequency, scope, notice, and assessor access.", "Security and legal"),
-    ("Service Levels / Credits", "RED", r"\buncapped\b.{0,160}\b(?:service credit|SLA)", "Uncapped service credits", "Remedies may exceed a predictable service-credit exposure.", "Cap aggregate credits and align them with sole-remedy language.", "Commercial and legal"),
+    ("Audit / Compliance", "RED", r"\bunlimited\b.{0,160}\baudit|\baudit.{0,160}\bunlimited\b", "Unlimited audit right", "Repeated or broad audits can disrupt operations and expose confidential systems.", "Limit audit frequency, scope, notice, and assessor access.", "Security and legal"),
+    ("Service Levels / Credits", "RED", r"\buncapped\b.{0,160}\b(?:service credit|SLA)|\b(?:service credit|SLA)\b.{0,160}\buncapped\b", "Uncapped service credits", "Remedies may exceed a predictable service-credit exposure.", "Cap aggregate credits and align them with sole-remedy language.", "Commercial and legal"),
     ("Restrictive Covenants", "AMBER", r"\bnon[- ]solicit", "Non-solicitation restriction", "Hiring and staffing flexibility may be constrained.", "Confirm duration, covered people, and customary carve-outs.", "HR and legal"),
 ]
+
+# Narrow, evidence-linked edge-case rules for rapid deal screening.
+RULES.extend([
+    ("Change of Control / Assignment", "RED", r"\b(?:assignment|assign(?:ment)?|transfer)\b.{0,180}\b(?:by operation of law|change of control)\b|\b(?:by operation of law|change of control)\b.{0,180}\b(?:assignment|assign(?:ment)?|transfer)\b", "Change-of-control transfer restriction", "A transaction may be treated as an assignment even without a conventional asset transfer.", "Confirm whether indirect change of control or transfer by operation of law needs consent, and obtain a targeted waiver if required.", "Corporate development and legal"),
+    ("Pricing / MFN / Exclusivity", "RED", r"\b(?:unilateral|sole discretion)\b.{0,180}\b(?:price|pricing|fee|charge)\b|\b(?:price|pricing|fee|charge)\b.{0,180}\b(?:unilateral|sole discretion)\b", "Unilateral pricing control", "One party may be able to change economics without a negotiated approval mechanism.", "Confirm notice, caps, customer exit rights, and whether the commercial model tolerates unilateral price changes.", "Commercial leadership and finance"),
+    ("Data Protection / Security", "AMBER", r"\b(?:data residency|data localisation|data localization|cross[- ]border transfer)\b", "Data location or transfer constraint", "Data-hosting or transfer restrictions can affect operating model, integration, and transaction diligence.", "Validate hosting locations, transfer mechanism, subcontractors, and compliance ownership.", "Privacy, security, and legal"),
+    ("Revenue / Payment", "AMBER", r"\b(?:set[- ]off|withhold|withholding)\b.{0,180}\b(?:payment|invoice|fee|charge)\b|\b(?:payment|invoice|fee|charge)\b.{0,180}\b(?:set[- ]off|withhold|withholding)\b", "Payment set-off or withholding right", "Broad set-off or withholding can reduce payment certainty and distort revenue collection.", "Confirm the scope of disputed amounts, notice, cure process, and whether undisputed sums remain payable.", "Finance and commercial"),
+])
+
+
+def extract_txt(raw: bytes) -> str:
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise ValueError("No text was found in the TXT file.")
+    return text
+
 
 TERM_PATTERNS = [
     ("Payment terms", r"\bnet\s+\d+\b"),
@@ -115,10 +131,21 @@ def quote(text: str, start: int, end: int, limit: int = 550) -> str:
 
 
 def split_clauses(text: str) -> list[Clause]:
-    heading = re.compile(r"(?m)^(?P<number>\d+(?:\.\d+){0,3})[.)]?\s+(?P<title>[A-Z][^\n]{2,100})$")
+    """Recognise common legal numbering and avoid treating an irregular agreement as one clause."""
+    heading = re.compile(
+        r"(?mi)^\s*(?:(?:section|clause|article)\s+)?(?P<number>\d+(?:\.\d+){0,5}|[IVXLC]+|[A-Z])(?:\s*[.:)\-])?\s+(?P<title>[A-Z][^\n]{2,120})\s*$"
+    )
     matches = list(heading.finditer(text))
     if not matches:
-        return [Clause("Unnumbered", "Agreement text", text, 1)]
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if len(part.strip()) >= 80]
+        if len(paragraphs) <= 1:
+            return [Clause("Unnumbered", "Agreement text", text, page_at(text, 0))]
+        clauses, cursor = [], 0
+        for index, paragraph in enumerate(paragraphs, start=1):
+            position = text.find(paragraph, cursor)
+            cursor = position + len(paragraph)
+            clauses.append(Clause(f"Unnumbered {index}", paragraph[:70].split(".")[0], paragraph, page_at(text, position)))
+        return clauses
 
     clauses = []
     if text[:matches[0].start()].strip():
@@ -126,9 +153,9 @@ def split_clauses(text: str) -> list[Clause]:
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         body = text[match.start():end].strip()
-        clauses.append(Clause(match.group("number"), match.group("title").strip(), body, page_at(text, match.start())))
+        if len(body) >= 30:
+            clauses.append(Clause(match.group("number").rstrip("."), match.group("title").strip(), body, page_at(text, match.start())))
     return clauses
-
 
 def categorize(clause: Clause) -> str:
     for category, pattern in CATEGORY_PATTERNS.items():
@@ -220,7 +247,7 @@ def main() -> None:
     with st.sidebar:
         st.header("Review setup")
         mode = st.radio("Decision context", ["Investment diligence", "Commercial approval"])
-        upload = st.file_uploader("Contract or agreement", type=["pdf", "docx"])
+        upload = st.file_uploader("Contract or agreement", type=["pdf", "docx", "txt"])
         run = st.button("Run local deal radar", type="primary", disabled=upload is None)
         st.caption("Runs fully in Python: no API key, network call, Ollama, or LLM.")
 
@@ -229,10 +256,15 @@ def main() -> None:
     if "human_decisions" not in st.session_state:
         st.session_state.human_decisions = {}
 
+    if upload and st.session_state.get("active_upload") != upload.name:
+        st.session_state.result = None
+        st.session_state.human_decisions = {}
+        st.session_state.active_upload = upload.name
+
     if run and upload:
         try:
             raw = upload.getvalue()
-            text = extract_pdf(raw) if upload.name.lower().endswith(".pdf") else extract_docx(raw)
+            text = extract_pdf(raw) if upload.name.lower().endswith(".pdf") else extract_docx(raw) if upload.name.lower().endswith(".docx") else extract_txt(raw)
             with st.spinner("Parsing clauses and applying local commercial-risk rules…"):
                 clauses, signals, terms = analyze(text)
                 scorecard = score(signals)
@@ -251,7 +283,7 @@ def main() -> None:
 
     result = st.session_state.result
     if not result:
-        st.info("Upload a text-based PDF or DOCX. The radar will run instantly on local Python rules.")
+        st.info("Upload a text-based PDF, DOCX, or TXT agreement. The radar will run instantly on local Python rules.")
         return
 
     scorecard, decision = result["scorecard"], result["memo"]
