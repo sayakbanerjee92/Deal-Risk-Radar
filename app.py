@@ -297,6 +297,92 @@ def badge(level: str) -> str:
     return f"<span style='color:{color};font-weight:700'>{level}</span>"
 
 
+DRAFTING_PLAYBOOK = {
+    "Change of Control / Assignment": (
+        "Preserve transaction flexibility while allowing consent only for a materially adverse replacement counterparty.",
+        "[Counterparty] shall not unreasonably withhold, condition, or delay consent to an assignment by [Company] to an Affiliate or in connection with a merger, reorganisation, sale of substantially all assets, or change of control, provided that the assignee assumes this Agreement in writing. No consent is required for an internal reorganisation that does not reduce [Counterparty]'s contractual protections.",
+        "Define whether indirect change of control is covered, identify any regulated-consent exception, and agree a response deadline and deemed-consent consequence where appropriate.",
+    ),
+    "Termination / Renewal": (
+        "Make exit rights, cure opportunities, renewal notice, and commercial consequences predictable.",
+        "Neither Party may terminate this Agreement for material breach unless it first gives written notice describing the breach in reasonable detail and the breaching Party fails to cure it within [30] days; provided that a non-curable breach may be terminated on written notice. Any termination for convenience requires at least [90] days' prior written notice and does not relieve [Counterparty] of accrued payment obligations or agreed wind-down charges.",
+        "Tailor cure periods, convenience rights, committed spend, transition support, data return, and survival obligations to the transaction.",
+    ),
+    "Revenue / Payment": (
+        "Protect collection of undisputed amounts and prevent broad withholding from becoming a cash-flow risk.",
+        "Amounts properly invoiced and not disputed in good faith are due within [30] days of receipt. A Party may withhold only the specific portion of an invoice that it disputes in writing before the due date, with reasonable detail; all undisputed amounts remain payable when due. The Parties will work in good faith to resolve a disputed amount within [15] days.",
+        "Set the currency, tax treatment, late charge, suspension threshold, invoice requirements, and any permitted set-off rights.",
+    ),
+    "Pricing / MFN / Exclusivity": (
+        "Prevent open-ended pricing, MFN, or exclusivity commitments from constraining future economics.",
+        "Fees may be changed only by a written amendment signed by both Parties, except for an annual increase not exceeding [X%] on at least [60] days' prior notice. Any most-favoured-customer or exclusivity commitment applies only to the expressly identified products, territory, customer segment, and period, and excludes promotional, bundled, legacy, and materially different transactions.",
+        "Define pricing comparators, the duration and carve-outs of any restriction, termination rights, and the commercial consideration for exclusivity.",
+    ),
+    "Limitation of Liability": (
+        "Set a measurable aggregate exposure ceiling and expressly negotiated carve-outs.",
+        "Except for the Excluded Claims, each Party's aggregate liability arising out of or relating to this Agreement will not exceed the fees paid or payable under this Agreement in the [12] months preceding the event giving rise to liability. Neither Party will be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or lost profits, revenue, goodwill, or data, except to the extent such amounts are payable to a third party under an agreed indemnity.",
+        "Define the cap base, claim period, excluded-loss treatment, insurance alignment, and any carve-outs for confidentiality, IP, data, fraud, or wilful misconduct.",
+    ),
+    "Indemnity": (
+        "Limit indemnity to a defined set of third-party claims and establish defence and settlement controls.",
+        "[Indemnifying Party] will defend and indemnify [Indemnified Party] against final third-party claims to the extent arising from [defined IP infringement / bodily injury / property damage], provided that [Indemnified Party] promptly notifies [Indemnifying Party], reasonably cooperates, and permits [Indemnifying Party] to control the defence. No settlement may impose liability, admission, or non-monetary obligation on [Indemnified Party] without its prior written consent.",
+        "Specify exclusions, IP remediation options, control of counsel, notice prejudice, cap interaction, and whether data/privacy claims are included.",
+    ),
+    "Intellectual Property": (
+        "Protect background technology and clearly allocate deliverable rights.",
+        "Each Party retains all right, title, and interest in its pre-existing materials, tools, software, methodologies, and know-how. To the extent [Company] incorporates its background materials into a deliverable, [Counterparty] receives a non-exclusive, worldwide, perpetual licence to use those materials solely as embedded in and necessary to use the deliverable. No implied licence is granted.",
+        "Separate background IP, deliverables, customer materials, open-source components, feedback, and residual know-how.",
+    ),
+    "Data Protection / Security": (
+        "Convert data and security obligations into operationally achievable, measurable commitments.",
+        "[Processor/Service Provider] will process Personal Data only on documented instructions, implement appropriate technical and organisational measures, notify [Controller/Customer] without undue delay and in any event within [X] hours after confirming a Security Incident, and return or delete Personal Data at termination unless retention is legally required. Subprocessors require prior [notice/consent] and written obligations no less protective than this Agreement.",
+        "Tailor roles, incident trigger and timeline, hosting location, transfer mechanism, audit evidence, regulatory assistance, and allocation of remediation costs.",
+    ),
+    "Audit / Compliance": (
+        "Make audit rights proportionate, secure, and non-disruptive.",
+        "[Customer] may, no more than once in any [12]-month period and on at least [30] days' prior written notice, audit [Company]'s compliance with the applicable obligations during normal business hours, subject to confidentiality, reasonable security requirements, and no access to other customers' information. Independent assurance reports may satisfy the audit requirement unless a material non-compliance is reasonably suspected.",
+        "Set frequency, scope, assessor qualifications, costs, notice, remediation, and treatment of sensitive systems and data.",
+    ),
+    "Service Levels / Credits": (
+        "Tie performance remedies to defined metrics and cap financial exposure.",
+        "Service credits are [Customer]'s sole and exclusive monetary remedy for a Service Level failure. Aggregate service credits in any calendar month will not exceed [X%] of the monthly fees for the affected Service. Service Levels exclude failures caused by [Customer], third-party systems, scheduled maintenance, force majeure, or events outside [Company]'s reasonable control.",
+        "Define metrics, measurement method, exclusions, credit calculation, escalation, chronic-failure rights, and interaction with termination remedies.",
+    ),
+    "Restrictive Covenants": (
+        "Narrow staffing, publicity, or competitive restrictions to what is commercially necessary.",
+        "During the Term and for [12] months thereafter, neither Party will knowingly solicit for employment an employee of the other Party who was materially involved in performing this Agreement, except through general solicitations not targeted at that employee, responses to unsolicited applications, or use of recruiters not directed to target that employee.",
+        "Define covered people, duration, geography, general-solicitation and recruiter carve-outs, and any agreed remedy.",
+    ),
+    "Dispute Resolution / Governing Law": (
+        "Create a predictable escalation route while preserving urgent-relief rights.",
+        "The Parties will first escalate any dispute to designated business representatives for [15] days before commencing formal proceedings. This Agreement is governed by the laws of [jurisdiction], and the courts of [forum] have exclusive jurisdiction; either Party may seek interim injunctive relief in any court of competent jurisdiction.",
+        "Choose governing law, forum or arbitration rules, language, cost allocation, notice mechanics, and exceptions for urgent relief.",
+    ),
+}
+
+
+def drafting_response(signal: dict) -> dict[str, str]:
+    objective, clause, tailoring = DRAFTING_PLAYBOOK.get(
+        signal["category"],
+        (
+            "Make the obligation, exception, remedy, and cost/risk allocation explicit.",
+            "The Parties will document the scope of the relevant obligation, the applicable exceptions, notice and cure process, remedy, and any agreed financial limitation in a written amendment signed by both Parties.",
+            "Tie the wording to the exact source evidence, parties, jurisdiction, and commercial position before use.",
+        ),
+    )
+    return {"objective": objective, "clause": clause, "tailoring": tailoring}
+
+
+def drafting_pack(result: dict) -> str:
+    lines = ["# Deal Risk Radar — Drafting Responses", "", "> Sample negotiating language only; qualified counsel must tailor it to the agreement, parties, jurisdiction, and commercial position.", ""]
+    for signal in result["signals"]:
+        if signal["severity"] not in {"RED", "AMBER"}:
+            continue
+        response = drafting_response(signal)
+        lines += [f"## {signal['severity']} — {signal['title']}", f"Source evidence: {signal['source_text']}", "", "### Drafting objective", response["objective"], "", "### Sample clause", response["clause"], "", "### Tailoring points", response["tailoring"], ""]
+    return "\n".join(lines)
+
+
 def report_markdown(result: dict) -> str:
     scorecard, decision = result["scorecard"], result["memo"]
     lines = [f"# {APP_NAME}", "", f"> {DISCLAIMER}", "", "## Decision", f"**{decision['decision']}**", decision["headline"], "", "## Signals"]
@@ -361,7 +447,7 @@ def main() -> None:
         st.warning(f"Document structure note: {structure['derived']} derived text fragment(s) were created because no reliable numbered or heading boundary was found. These are traceable review segments, not invented clause numbers.")
     else:
         st.caption(f"Structural extraction: {structure.get('numbered', 0)} numbered clause(s) and {structure.get('heading_derived', 0)} heading-derived clause(s).")
-    memo_tab, signals_tab, terms_tab, clauses_tab, human_tab = st.tabs(["Decision memo", "Deal signals", "Key terms", "Clauses", "Human review"])
+    memo_tab, signals_tab, drafting_tab, terms_tab, clauses_tab, human_tab = st.tabs(["Decision memo", "Deal signals", "Drafting responses", "Key terms", "Clauses", "Human review"])
 
     with memo_tab:
         left, right = st.columns([1, 2])
@@ -397,6 +483,23 @@ def main() -> None:
             with st.expander("Contract evidence"):
                 st.code(signal["source_text"], language=None)
             st.divider()
+
+    with drafting_tab:
+        st.subheader("Signal-led drafting responses")
+        st.caption("Each draft below is linked to a red or amber signal found in the uploaded agreement. It is sample negotiating language, not a ready-to-sign clause; replace bracketed terms and obtain qualified legal review.")
+        draftable = [signal for signal in result["signals"] if signal["severity"] in {"RED", "AMBER"}]
+        if not draftable:
+            st.info("No red or amber rule-triggered signals were found. The app cannot confirm that the agreement is risk-free.")
+        for signal in draftable:
+            response = drafting_response(signal)
+            with st.expander(f"{signal['severity']} — {signal['title']} · Clause {signal['clause_reference']}"):
+                st.write(f"**Why this draft is shown:** {signal['business_impact']}")
+                st.caption(f"Evidence: {signal['source_text']}")
+                st.write(f"**Drafting objective:** {response['objective']}")
+                st.code(response["clause"], language="text")
+                st.write(f"**Counsel tailoring points:** {response['tailoring']}")
+        if draftable:
+            st.download_button("Download drafting-response pack", drafting_pack(result), "deal_radar_drafting_responses.md", "text/markdown")
 
     with terms_tab:
         for term in result["terms"]:
