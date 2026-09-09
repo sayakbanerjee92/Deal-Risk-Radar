@@ -95,6 +95,7 @@ class Signal:
     recommended_action: str
     escalation: str
     clause_reference: str
+    clause_title: str
     source_text: str
     page_number: int | None
 
@@ -140,7 +141,7 @@ STRUCTURAL_TITLE_WORDS = {
 
 
 def heading_candidates(text: str) -> list[tuple[int, str, str]]:
-    """Find numbered and visually heading-like legal provisions from plain extracted text."""
+    """Find numbered, split-line, and visual legal headings from plain extracted text."""
     numbered = re.compile(
         r"(?mi)^\s*(?:(?:section|clause|article)\s+)?(?P<number>\d+(?:\.\d+){0,5}|[IVXLC]+|[A-Z])(?:\s*[.:)\-])?\s+(?P<title>[^\n]{3,120})\s*$"
     )
@@ -151,17 +152,29 @@ def heading_candidates(text: str) -> list[tuple[int, str, str]]:
             candidates[match.start()] = (match.start(), match.group("number").rstrip("."), title)
 
     lines = list(re.finditer(r"(?m)^([^\n]+)$", text))
+    number_only = re.compile(r"(?i)^\s*(?:(?:section|clause|article)\s+)?(?P<number>\d+(?:\.\d+){0,5}|[IVXLC]+|[A-Z])(?:\s*[.:)\-])?\s*$")
     for index, line in enumerate(lines):
-        position, title = line.start(), line.group(1).strip()
-        if position in candidates or not (3 <= len(title) <= 100) or len(title.split()) > 12:
+        position, value = line.start(), line.group(1).strip()
+        split_number = number_only.match(value)
+        if split_number:
+            for later in lines[index + 1:]:
+                title = later.group(1).strip()
+                if not title:
+                    continue
+                if 3 <= len(title) <= 120 and len(title.split()) <= 16 and not re.search(r"[.;!?]$", title):
+                    candidates[position] = (position, split_number.group("number").rstrip("."), title)
+                break
             continue
-        if re.search(r"[.;!?]$", title) or title.startswith("[Page "):
+        if position in candidates or not (3 <= len(value) <= 100) or len(value.split()) > 12:
             continue
-        lower = title.lower()
-        words = [word for word in re.findall(r"[A-Za-z]+", title) if word]
+        if re.search(r"[.;!?]$", value) or value.startswith("[Page "):
+            continue
+        lower = value.lower()
+        words = [word for word in re.findall(r"[A-Za-z]+", value) if word]
         title_case_ratio = sum(word[0].isupper() for word in words) / len(words) if words else 0
         known_heading = any(term in lower for term in STRUCTURAL_TITLE_WORDS)
-        all_caps = bool(letters := re.sub(r"[^A-Za-z]", "", title)) and letters.isupper()
+        letters = re.sub(r"[^A-Za-z]", "", value)
+        all_caps = bool(letters) and letters.isupper()
         next_text = ""
         for later in lines[index + 1:]:
             candidate = later.group(1).strip()
@@ -169,7 +182,7 @@ def heading_candidates(text: str) -> list[tuple[int, str, str]]:
                 next_text = candidate
                 break
         if (known_heading or all_caps or title_case_ratio >= 0.80) and len(next_text) >= 35:
-            candidates[position] = (position, "Heading-derived", title)
+            candidates[position] = (position, "Heading-derived", value)
     return [candidates[key] for key in sorted(candidates)]
 
 
@@ -233,7 +246,7 @@ def categorize(clause: Clause) -> str:
 
 def make_signal(rule: tuple, clause: Clause, match: re.Match) -> Signal:
     category, severity, pattern, title, impact, action, escalation = rule
-    return Signal(category, severity, title, impact, action, escalation, clause.reference, quote(clause.text, match.start(), match.end()), clause.page)
+    return Signal(category, severity, title, impact, action, escalation, clause.reference, clause.title, quote(clause.text, match.start(), match.end()), clause.page)
 
 
 def analyze(text: str) -> tuple[list[Clause], list[Signal], list[dict]]:
@@ -253,6 +266,7 @@ def analyze(text: str) -> tuple[list[Clause], list[Signal], list[dict]]:
                     "label": label,
                     "value": quote(clause.text, match.start(), match.end(), 180),
                     "clause_reference": clause.reference,
+                    "clause_title": clause.title,
                     "source_text": quote(clause.text, match.start(), match.end()),
                     "page_number": clause.page,
                     "category": categorize(clause),
@@ -273,22 +287,56 @@ def score(signals: list[Signal]) -> dict:
     return {"rating": rating, "score": value, "counts": counts, "priority_signals": priorities}
 
 
+MEMO_GUIDANCE = {
+    "Change of Control / Assignment": ("Does the contemplated transaction, financing, or internal reorganisation trigger a consent, notice, or termination right?", "Corporate development and legal: map the transaction structure against the exact assignment/change-of-control wording and seek a targeted waiver if needed."),
+    "Termination / Renewal": ("What event, notice period, cure right, or renewal date could interrupt the forecast revenue or service relationship?", "Commercial owner and legal: calendar notice dates, quantify wind-down exposure, and negotiate the identified exit mechanism."),
+    "Revenue / Payment": ("What is the cash-flow effect of the payment term, dispute mechanism, set-off, or withholding right?", "Finance and commercial: model DSO and collection exposure, then set a clear due-date and disputed-sums process."),
+    "Pricing / MFN / Exclusivity": ("What products, customers, channels, or future prices are constrained, and for how long?", "Commercial leadership: quantify the revenue trade-off and narrow the pricing, MFN, or exclusivity perimeter."),
+    "Limitation of Liability": ("Does the cap and its carve-outs align with the deal economics, insurance, and plausible loss scenarios?", "Legal and finance: set a negotiated aggregate cap, loss exclusions, and scoped carve-outs."),
+    "Indemnity": ("Which third-party claims are covered, who controls defence and settlement, and how does the obligation interact with the cap?", "Legal: limit covered claims and document defence, settlement, exclusion, and cap mechanics."),
+    "Intellectual Property": ("Are ownership, licence, and background-IP rights sufficient for the transaction without exposing reusable technology?", "IP counsel: separate background IP, deliverables, embedded materials, and permitted use rights."),
+    "Data Protection / Security": ("Can the operating model meet the stated data, incident, hosting, and security commitment?", "Privacy and security: validate roles, incident timeline, transfer requirements, controls, and remediation ownership."),
+    "Audit / Compliance": ("Are audit scope, frequency, cost, system access, and remediation obligations proportionate?", "Security and legal: replace unrestricted access with defined notice, frequency, scope, and assurance-report mechanics."),
+    "Service Levels / Credits": ("Are metrics, exclusions, credits, and chronic-failure remedies commercially sustainable?", "Commercial and legal: define measurement, exclusions, aggregate credit cap, and chronic-failure path."),
+    "Restrictive Covenants": ("Who is restricted, for what period, and are customary staffing or publicity carve-outs preserved?", "HR and legal: narrow the covered population, duration, and prohibited conduct and add standard carve-outs."),
+    "Dispute Resolution / Governing Law": ("Will the forum and escalation process support timely, cost-effective enforcement for this deal?", "Legal: confirm governing law, forum, escalation, costs, and urgent-relief rights."),
+}
+
+
+def distinct_priority_signals(signals: list[Signal], limit: int = 5) -> list[Signal]:
+    selected, seen_categories = [], set()
+    for signal in signals:
+        if signal.category not in seen_categories:
+            selected.append(signal)
+            seen_categories.add(signal.category)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def memo(mode: str, scorecard: dict) -> dict:
     signals = scorecard["priority_signals"]
     rating = scorecard["rating"]
     decision = "PAUSE FOR DILIGENCE" if rating == "RED" else "PROCEED WITH CONDITIONS" if rating == "AMBER" else "PROCEED"
     framing = "investment case" if mode == "Investment diligence" else "commercial approval"
-    priorities = [f"{s.title}: {s.recommended_action}" for s in signals[:5]]
-    questions = [f"Can the team confirm and evidence the mitigation for: {s.title}?" for s in signals if s.severity in {"RED", "AMBER"}][:6]
-    actions = list(dict.fromkeys(s.recommended_action for s in signals if s.severity in {"RED", "AMBER"}))[:6]
+    priorities = distinct_priority_signals(signals)
+    top_priorities = [f"{signal.severity} · {signal.category} · Clause {signal.clause_reference} — {signal.clause_title}: {signal.business_impact}" for signal in priorities]
+    questions = []
+    actions = []
+    for signal in priorities:
+        question, action = MEMO_GUIDANCE.get(signal.category, ("What operative obligation, exception, remedy, and commercial impact does this evidence create?", "Legal and commercial: verify the source wording and document a negotiated mitigation."))
+        if question not in questions:
+            questions.append(question)
+        if action not in actions:
+            actions.append(action)
     return {
         "decision": decision,
-        "headline": f"{rating} deal-risk rating based on {len(signals)} evidence-backed signal(s).",
-        "investment_or_commercial_impact": f"The {framing} should account for the highlighted revenue, transferability, liability, margin, and operational exposures.",
-        "top_priorities": priorities or ["No rule-triggered deal signals were found; counsel should still review material provisions."],
+        "headline": f"{rating} deal-risk rating based on {len(signals)} evidence-backed signal(s) across {len({signal.category for signal in signals})} risk category/categories.",
+        "investment_or_commercial_impact": f"The {framing} should be assessed against the distinct highest-priority categories below; repeated signals within the same category remain included in the score.",
+        "top_priorities": top_priorities or ["No rule-triggered deal signals were found; counsel should still review material provisions."],
         "diligence_questions": questions or ["Confirm whether any material commercial terms exist outside the uploaded agreement."],
         "commercial_actions": actions or ["Retain evidence and complete qualified legal review."],
-        "lawyer_review_note": "Rule matches are screening prompts, not conclusions. Verify exact wording, applicability, jurisdiction, and commercial context.",
+        "lawyer_review_note": "Each priority identifies the matching clause reference and title. Rule matches are screening prompts, not conclusions; verify wording, applicability, jurisdiction, and commercial context.",
     }
 
 
@@ -379,7 +427,7 @@ def drafting_pack(result: dict) -> str:
         if signal["severity"] not in {"RED", "AMBER"}:
             continue
         response = drafting_response(signal)
-        lines += [f"## {signal['severity']} — {signal['title']}", f"Source evidence: {signal['source_text']}", "", "### Drafting objective", response["objective"], "", "### Sample clause", response["clause"], "", "### Tailoring points", response["tailoring"], ""]
+        lines += [f"## {signal['severity']} — {signal['title']}", f"Clause: {signal['clause_reference']} — {signal['clause_title']}\nSource evidence: {signal['source_text']}", "", "### Drafting objective", response["objective"], "", "### Sample clause", response["clause"], "", "### Tailoring points", response["tailoring"], ""]
     return "\n".join(lines)
 
 
@@ -440,7 +488,7 @@ def render_signal(signal: dict, lens: str | None = None) -> None:
         st.info(f"{lens} lens: {perspective['objective']}")
         st.caption(perspective["source_cue"])
     st.write(f"**Recommended action:** {signal['recommended_action']}")
-    st.caption(f"Escalation: {signal['escalation']} · Clause {signal['clause_reference']} · Page {signal['page_number'] or 'not available'}")
+    st.caption(f"Escalation: {signal['escalation']} · Clause {signal['clause_reference']} — {signal['clause_title']} · Page {signal['page_number'] or 'not available'}")
     with st.expander("Contract evidence"):
         st.code(signal["source_text"], language=None)
     st.divider()
@@ -557,7 +605,7 @@ def main() -> None:
                     st.info("No red or amber rule-triggered signals were found. The app cannot confirm that the agreement is risk-free.")
                 for signal in draftable:
                     positioned = perspective_response(signal, lens)
-                    with st.expander(f"{signal['severity']} — {signal['title']} · Clause {signal['clause_reference']}"):
+                    with st.expander(f"{signal['severity']} — {signal['title']} · Clause {signal['clause_reference']} — {signal['clause_title']}"):
                         st.write(f"**{lens} drafting objective:** {positioned['objective']}")
                         st.caption(positioned["source_cue"])
                         st.write("**Position-specific sample clause:**")
@@ -571,7 +619,7 @@ def main() -> None:
     with terms_tab:
         for term in result["terms"]:
             with st.expander(f"{term['label']}: {term['value']}"):
-                st.caption(f"Clause {term['clause_reference']} · Page {term['page_number'] or 'not available'}")
+                st.caption(f"Clause {term['clause_reference']} — {term['clause_title']} · Page {term['page_number'] or 'not available'}")
                 st.code(term["source_text"], language=None)
 
     with clauses_tab:
