@@ -40,7 +40,7 @@ RULES = [
     ("Termination / Renewal", "AMBER", r"\bauto[- ]renew", "Auto-renewal deadline", "A missed notice date can lock in or extend commercial commitments.", "Record the notice deadline and owner in the contract calendar.", "Commercial operations"),
     ("Revenue / Payment", "RED", r"\bnet\s+(?:9\d|[1-9]\d{2,})\b", "Extended payment terms", "Long payment timing can reduce cash conversion and working-capital quality.", "Quantify DSO impact and seek shorter terms where possible.", "Finance and commercial"),
     ("Revenue / Payment", "AMBER", r"\bnet\s+(?:[6-8]\d)\b", "Long payment terms", "Payment terms exceed a typical short-cycle commercial position.", "Confirm margin and cash-flow impact.", "Finance"),
-    ("Pricing / MFN / Exclusivity", "RED", r"\bexclusiv", "Exclusivity restriction", "Exclusivity can constrain future customers, channels, or product strategy.", "Confirm scope, duration, carve-outs, and revenue trade-off.", "Commercial leadership and legal"),
+    ("Pricing / MFN / Exclusivity", "RED", r"\b(?:shall|will|must|agrees? to|is granted|appoint(?:ed)? as|grant(?:s|ed)?)\b.{0,180}\b(?:exclusive|exclusivity)\b|\b(?:exclusive|exclusivity)\b.{0,180}\b(?:shall|will|must|agrees? to|is granted|appoint(?:ed)? as|grant(?:s|ed)?)\b", "Exclusivity restriction", "Exclusivity can constrain future customers, channels, or product strategy.", "Confirm scope, duration, carve-outs, and revenue trade-off.", "Commercial leadership and legal"),
     ("Pricing / MFN / Exclusivity", "AMBER", r"\b(most favou?red|MFN)\b", "Most-favoured-customer pricing", "MFN rights can compress margins or require future repricing.", "Identify affected products, customers, and pricing mechanics.", "Commercial and finance"),
     ("Limitation of Liability", "RED", r"\b(unlimited|uncapped)\b.{0,160}\bliabilit|\bliabilit.{0,160}\b(unlimited|uncapped)\b", "Potentially uncapped liability", "Loss exposure may exceed the expected economics of the agreement.", "Escalate cap and carve-out structure for legal and insurance review.", "Legal and insurance"),
     ("Limitation of Liability", "AMBER", r"\bliability\b.{0,160}\b(?:five|5)\s*(?:x|times)\b", "Elevated liability cap", "A high cap may create exposure disproportionate to contract value.", "Compare cap to revenue, insurance, and deal-risk tolerance.", "Legal and finance"),
@@ -67,6 +67,15 @@ def extract_txt(raw: bytes) -> str:
     if not text:
         raise ValueError("No text was found in the TXT file.")
     return text
+
+
+RECITAL_TITLES = {"whereas", "recitals", "preamble", "background"}
+
+
+def is_recital_clause(clause: Clause) -> bool:
+    title = clause.title.strip().lower().rstrip(":")
+    opening = clause.text.lstrip().lower()
+    return title in RECITAL_TITLES or opening.startswith("whereas") or opening.startswith("recitals")
 
 
 TERM_PATTERNS = [
@@ -255,10 +264,11 @@ def analyze(text: str) -> tuple[list[Clause], list[Signal], list[dict]]:
     terms: list[dict] = []
 
     for clause in clauses:
-        for rule in RULES:
-            match = re.search(rule[2], clause.text, re.IGNORECASE | re.DOTALL)
-            if match:
-                signals.append(make_signal(rule, clause, match))
+        if not is_recital_clause(clause):
+            for rule in RULES:
+                match = re.search(rule[2], clause.text, re.IGNORECASE | re.DOTALL)
+                if match:
+                    signals.append(make_signal(rule, clause, match))
         for label, pattern in TERM_PATTERNS:
             match = re.search(pattern, clause.text, re.IGNORECASE)
             if match:
@@ -409,15 +419,36 @@ DRAFTING_PLAYBOOK = {
 }
 
 
+SIGNAL_DRAFTING_OVERRIDES = {
+    "Exclusivity restriction": (
+        "Convert any exclusivity concept into a narrowly scoped, expressly bargained-for commercial commitment rather than a broad implied restraint.",
+        "No exclusivity is granted under this Agreement except to the extent expressly stated in this clause. If exclusivity is agreed, it applies only to [identified products/services] in [territory/customer segment] during [period], is conditional on [minimum commitment/performance threshold], and does not restrict [Company]'s existing customers, Affiliates, channels, products, or opportunities outside that defined scope. Any breach remedy is limited to [specified remedy].",
+        "Confirm whether exclusivity is intended at all. If it is, define beneficiary, product/service, territory, channel, duration, performance conditions, carve-outs, and the sole remedy; do not rely on descriptive recital language.",
+    ),
+}
+
+SIGNAL_PARTY_OVERRIDES = {
+    ("Client / Customer", "Exclusivity restriction"): (
+        "If the Client is seeking exclusivity, ensure it is an enforceable commercial benefit with defined scope and a remedy for breach.",
+        "Company grants Client an exclusive right to [market/distribute/use] the [identified products/services] solely within [territory/customer segment] during [period], subject to Client meeting [objective commitments]. Company will not appoint another [provider/distributor] for that defined scope. This exclusivity does not apply to [express carve-outs], and Client may terminate the exclusivity arrangement if Company materially breaches it and fails to cure within [30] days.",
+    ),
+    ("Company / Service Provider", "Exclusivity restriction"): (
+        "Avoid an implied or unlimited restraint; if exclusivity is commercially necessary, make it conditional, narrow, and time-limited.",
+        "Except for the expressly defined exclusivity in this clause, Company remains free to market, sell, license, appoint, and provide the products/services to any person. Any exclusivity is limited to [scope] in [territory] for [period], ends automatically if Client fails to meet [minimum commitment/performance threshold], and excludes Company's existing customers, Affiliates, product lines, and opportunities outside the stated scope.",
+    ),
+}
+
+
 def drafting_response(signal: dict) -> dict[str, str]:
-    objective, clause, tailoring = DRAFTING_PLAYBOOK.get(
+    objective, clause, tailoring = SIGNAL_DRAFTING_OVERRIDES.get(
+        signal["title"], DRAFTING_PLAYBOOK.get(
         signal["category"],
         (
             "Make the obligation, exception, remedy, and cost/risk allocation explicit.",
             "The Parties will document the scope of the relevant obligation, the applicable exceptions, notice and cure process, remedy, and any agreed financial limitation in a written amendment signed by both Parties.",
             "Tie the wording to the exact source evidence, parties, jurisdiction, and commercial position before use.",
         ),
-    )
+    ))
     return {"objective": objective, "clause": clause, "tailoring": tailoring}
 
 
@@ -473,10 +504,10 @@ def party_source_cue(source: str, lens: str) -> str:
 
 
 def perspective_response(signal: dict, lens: str) -> dict[str, str]:
-    objective, adjustment = PARTY_LENS.get(lens, {}).get(signal["category"], (
+    objective, adjustment = SIGNAL_PARTY_OVERRIDES.get((lens, signal["title"]), PARTY_LENS.get(lens, {}).get(signal["category"], (
         "Clarify the obligation, exceptions, remedy, and allocation of cost and risk from this party's position.",
         "Add express wording identifying the responsible party, scope of obligation, exceptions, notice, cure process, remedy, and agreed financial limits.",
-    ))
+    )))
     return {"objective": objective, "adjustment": adjustment, "source_cue": party_source_cue(signal["source_text"], lens)}
 
 
