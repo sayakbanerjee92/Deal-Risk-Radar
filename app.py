@@ -383,6 +383,69 @@ def drafting_pack(result: dict) -> str:
     return "\n".join(lines)
 
 
+PARTY_LENS = {
+    "Client / Customer": {
+        "Change of Control / Assignment": ("Protect continuity and prevent a transfer to an unsuitable provider without an effective consent right.", "Client consent is required only for an assignment that materially and adversely affects the Services, and Client will not unreasonably withhold or delay consent. A change of control of Company will be treated as an assignment only if expressly stated and only where it materially impairs performance."),
+        "Termination / Renewal": ("Preserve a workable exit route, transition support, and protection from unwanted renewals.", "Client may terminate for Company material breach not cured within [30] days, repeated material Service Level failures, or for convenience on [90] days' notice. On termination, Company will provide reasonable transition assistance and return Client Data in the agreed format."),
+        "Revenue / Payment": ("Retain a good-faith invoice-dispute process without withholding undisputed sums.", "Client may withhold only the genuinely disputed portion of an invoice after giving written notice with reasonable detail; all undisputed amounts remain payable when due. No late charge applies to the disputed amount while the Parties work in good faith to resolve it."),
+        "Pricing / MFN / Exclusivity": ("Avoid uncontrolled price changes and ensure any preferential pricing or exclusivity is specific and enforceable.", "Any fee increase requires at least [60] days' notice and will not exceed [X%] in a contract year. Any MFN or exclusivity benefit for Client applies to the specified products, territory, and term and is enforceable through a price adjustment or termination right."),
+        "Limitation of Liability": ("Keep meaningful remedies for the Client's most serious loss scenarios.", "The liability cap will not apply, or will apply at an enhanced cap of [X], to Company's breach of confidentiality, data-protection obligations, IP indemnity, fraud, or wilful misconduct. The agreed cap does not prevent recovery of direct, documented remediation costs."),
+        "Indemnity": ("Secure defence and reimbursement for defined third-party claims.", "Company will defend and indemnify Client against third-party claims arising from Company’s IP infringement, breach of applicable data-protection law, or gross negligence, subject to Client’s prompt notice and reasonable cooperation."),
+        "Intellectual Property": ("Ensure the Client receives usable rights in deliverables and continuity if the relationship ends.", "Client owns the specifically identified Deliverables on payment, excluding Company Background IP. Company grants Client a perpetual, irrevocable, worldwide licence to use embedded Background IP as necessary to receive the benefit of the Deliverables."),
+        "Data Protection / Security": ("Require actionable security, incident, and downstream-processing protections.", "Company will notify Client of a confirmed Security Incident without undue delay and no later than [X] hours, provide regular updates, cooperate with investigation and remediation, and remain responsible for its subprocessors’ compliance."),
+        "Audit / Compliance": ("Obtain proportionate assurance and remediation visibility.", "Client may receive current independent assurance reports and, where reasonably necessary after a material incident or credible non-compliance concern, conduct a proportionate audit subject to confidentiality and security controls."),
+        "Service Levels / Credits": ("Make performance commitments measurable and give an effective chronic-failure remedy.", "If Company misses a material Service Level in [X] months in any [Y]-month period, Client may terminate the affected Services without early-termination charge, in addition to accrued service credits."),
+        "Restrictive Covenants": ("Narrow restrictions that could unnecessarily limit Client staffing or business operations.", "Any non-solicitation restriction is limited to personnel materially involved in the Services, lasts no more than [12] months, and excludes general solicitations, unsolicited applications, and independent recruiters not directed to target protected personnel."),
+        "Dispute Resolution / Governing Law": ("Preserve a practical enforcement forum and urgent-relief rights.", "Nothing prevents Client from seeking interim or injunctive relief for confidentiality, data, IP, or service-continuity harm in a court of competent jurisdiction while the Parties follow the agreed escalation process."),
+    },
+    "Company / Service Provider": {
+        "Change of Control / Assignment": ("Maintain transaction and internal-reorganisation flexibility.", "Company may assign this Agreement to an Affiliate or in connection with a merger, reorganisation, financing, or sale of all or substantially all of its assets, provided the assignee assumes Company’s obligations. Client consent may not be unreasonably withheld, conditioned, or delayed."),
+        "Termination / Renewal": ("Prevent abrupt, uncompensated exits and preserve cure opportunities.", "Company receives written notice and at least [30] days to cure a material breach before termination, except for non-curable breaches. A convenience termination by Client requires [90] days' notice and payment of all undisputed accrued fees and agreed wind-down charges."),
+        "Revenue / Payment": ("Protect collection certainty and restrict withholding to genuine disputes.", "Client will pay all undisputed amounts within [30] days. Any disputed amount must be identified in writing before the due date with reasonable detail, and Client may not set off or withhold any undisputed amount."),
+        "Pricing / MFN / Exclusivity": ("Keep pricing discretion bounded but commercially workable and avoid overbroad MFN/exclusivity obligations.", "Company may adjust fees once per contract year on at least [60] days' notice by no more than [X%]. Any MFN or exclusivity commitment excludes bespoke, bundled, promotional, legacy, or materially different transactions and expires after [X] months."),
+        "Limitation of Liability": ("Cap aggregate exposure and exclude loss categories that are not proportionate to the deal economics.", "Company's aggregate liability under this Agreement will not exceed the fees paid or payable in the [12] months preceding the event giving rise to the claim. Company will not be liable for indirect, consequential, special, punitive, or lost-profit damages, subject only to expressly negotiated carve-outs."),
+        "Indemnity": ("Limit indemnity to defined third-party claims with defence and settlement control.", "Company's indemnity applies only to final third-party claims directly caused by the specified infringement or conduct. Company controls the defence and settlement, provided that no settlement imposes liability, admission, or non-monetary obligation on Client without Client's consent."),
+        "Intellectual Property": ("Reserve reusable technology, know-how, and background materials.", "Company retains all rights in its Background IP, tools, methodologies, software, and know-how. Client receives only the licence expressly granted for its internal use of the Deliverables; no ownership or implied licence in Company Background IP transfers to Client."),
+        "Data Protection / Security": ("Align operational obligations with documented instructions and realistic incident processes.", "Company will process Personal Data only on Client's documented instructions and will notify Client after confirming a Security Incident within [X] hours, taking into account the information reasonably available. Company's obligations are subject to Client's cooperation and do not require disclosure of other customers' confidential information."),
+        "Audit / Compliance": ("Keep audits limited, secure, and non-disruptive.", "Client may audit no more than once in any [12]-month period, on [30] days' notice, during normal business hours, and at Client's cost, subject to confidentiality, security requirements, and use of independent assurance reports in lieu of on-site access where reasonably sufficient."),
+        "Service Levels / Credits": ("Keep remedies finite and account for dependencies outside the provider's control.", "Service credits are Client's sole and exclusive monetary remedy for Service Level failures and are capped at [X%] of the monthly fees for the affected Service. Service Levels exclude failures caused by Client, third-party systems, scheduled maintenance, or events outside Company's reasonable control."),
+        "Restrictive Covenants": ("Protect workforce stability without an unreasonable restraint.", "Any non-solicitation provision applies only to employees materially involved in the Services, excludes general advertisements and unsolicited applicants, and expires after [12] months; neither Party is liable for a hire made through a recruiter not instructed to target protected personnel."),
+        "Dispute Resolution / Governing Law": ("Require a structured escalation process before costly litigation.", "Before commencing proceedings, each Party will escalate the dispute to senior business representatives for at least [15] days. Except for urgent equitable relief, neither Party may commence formal proceedings until that escalation process is complete."),
+    },
+}
+
+
+def party_source_cue(source: str, lens: str) -> str:
+    terms = ("customer", "client") if lens == "Client / Customer" else ("company", "service provider", "supplier", "vendor", "contractor")
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", source)
+    cues = [sentence.strip() for sentence in sentences if any(re.search(r"\b" + re.escape(term) + r"\b", sentence, flags=re.I) for term in terms)]
+    if cues:
+        return "Direct source cue: " + " ".join(cues[:2])
+    return "No explicit party reference was detected in this signal evidence; this lens is a category-based negotiation prompt, not an allocation finding."
+
+
+def perspective_response(signal: dict, lens: str) -> dict[str, str]:
+    objective, adjustment = PARTY_LENS.get(lens, {}).get(signal["category"], (
+        "Clarify the obligation, exceptions, remedy, and allocation of cost and risk from this party's position.",
+        "Add express wording identifying the responsible party, scope of obligation, exceptions, notice, cure process, remedy, and agreed financial limits.",
+    ))
+    return {"objective": objective, "adjustment": adjustment, "source_cue": party_source_cue(signal["source_text"], lens)}
+
+
+def render_signal(signal: dict, lens: str | None = None) -> None:
+    st.markdown(f"{badge(signal['severity'])} — **{signal['title']}**", unsafe_allow_html=True)
+    st.write(signal["business_impact"])
+    if lens:
+        perspective = perspective_response(signal, lens)
+        st.info(f"{lens} lens: {perspective['objective']}")
+        st.caption(perspective["source_cue"])
+    st.write(f"**Recommended action:** {signal['recommended_action']}")
+    st.caption(f"Escalation: {signal['escalation']} · Clause {signal['clause_reference']} · Page {signal['page_number'] or 'not available'}")
+    with st.expander("Contract evidence"):
+        st.code(signal["source_text"], language=None)
+    st.divider()
+
+
 def report_markdown(result: dict) -> str:
     scorecard, decision = result["scorecard"], result["memo"]
     lines = [f"# {APP_NAME}", "", f"> {DISCLAIMER}", "", "## Decision", f"**{decision['decision']}**", decision["headline"], "", "## Signals"]
@@ -471,35 +534,39 @@ def main() -> None:
         categories = sorted({s["category"] for s in result["signals"]})
         category_filter = st.multiselect("Filter categories", categories)
         severity_filter = st.multiselect("Filter severity", ["RED", "AMBER", "GREEN"], default=["RED", "AMBER", "GREEN"])
-        for signal in result["signals"]:
-            if category_filter and signal["category"] not in category_filter:
-                continue
-            if signal["severity"] not in severity_filter:
-                continue
-            st.markdown(f"{badge(signal['severity'])} — **{signal['title']}**", unsafe_allow_html=True)
-            st.write(signal["business_impact"])
-            st.write(f"**Recommended action:** {signal['recommended_action']}")
-            st.caption(f"Escalation: {signal['escalation']} · Clause {signal['clause_reference']} · Page {signal['page_number'] or 'not available'}")
-            with st.expander("Contract evidence"):
-                st.code(signal["source_text"], language=None)
-            st.divider()
+        all_signals, client_signals, provider_signals = st.tabs(["All deal signals", "Client / Customer lens", "Company / Service Provider lens"])
+        for tab, lens in ((all_signals, None), (client_signals, "Client / Customer"), (provider_signals, "Company / Service Provider")):
+            with tab:
+                if lens:
+                    st.caption("Signals remain tied to the same agreement evidence. The lens supplies a distinct negotiation position and clearly marks where the source does not expressly name that party.")
+                for signal in result["signals"]:
+                    if category_filter and signal["category"] not in category_filter:
+                        continue
+                    if signal["severity"] not in severity_filter:
+                        continue
+                    render_signal(signal, lens)
 
     with drafting_tab:
-        st.subheader("Signal-led drafting responses")
-        st.caption("Each draft below is linked to a red or amber signal found in the uploaded agreement. It is sample negotiating language, not a ready-to-sign clause; replace bracketed terms and obtain qualified legal review.")
+        st.subheader("Party-segregated drafting responses")
+        st.caption("Each proposal is linked to a red or amber signal. Choose the negotiating perspective you represent; sample language is not ready to sign and must be tailored by qualified counsel.")
         draftable = [signal for signal in result["signals"] if signal["severity"] in {"RED", "AMBER"}]
-        if not draftable:
-            st.info("No red or amber rule-triggered signals were found. The app cannot confirm that the agreement is risk-free.")
-        for signal in draftable:
-            response = drafting_response(signal)
-            with st.expander(f"{signal['severity']} — {signal['title']} · Clause {signal['clause_reference']}"):
-                st.write(f"**Why this draft is shown:** {signal['business_impact']}")
-                st.caption(f"Evidence: {signal['source_text']}")
-                st.write(f"**Drafting objective:** {response['objective']}")
-                st.code(response["clause"], language="text")
-                st.write(f"**Counsel tailoring points:** {response['tailoring']}")
+        client_drafts, provider_drafts = st.tabs(["Client / Customer proposals", "Company / Service Provider proposals"])
+        for tab, lens in ((client_drafts, "Client / Customer"), (provider_drafts, "Company / Service Provider")):
+            with tab:
+                if not draftable:
+                    st.info("No red or amber rule-triggered signals were found. The app cannot confirm that the agreement is risk-free.")
+                for signal in draftable:
+                    positioned = perspective_response(signal, lens)
+                    with st.expander(f"{signal['severity']} — {signal['title']} · Clause {signal['clause_reference']}"):
+                        st.write(f"**{lens} drafting objective:** {positioned['objective']}")
+                        st.caption(positioned["source_cue"])
+                        st.write("**Position-specific sample clause:**")
+                        st.code(positioned["adjustment"], language="text")
+                        st.write("**Balanced baseline / cross-check:**")
+                        st.code(drafting_response(signal)["clause"], language="text")
+                        st.caption("Reconcile this proposal with the source evidence, the other party's position, governing law, and negotiated commercial thresholds before use.")
         if draftable:
-            st.download_button("Download drafting-response pack", drafting_pack(result), "deal_radar_drafting_responses.md", "text/markdown")
+            st.download_button("Download balanced drafting-response pack", drafting_pack(result), "deal_radar_drafting_responses.md", "text/markdown")
 
     with terms_tab:
         for term in result["terms"]:
