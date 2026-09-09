@@ -130,32 +130,99 @@ def quote(text: str, start: int, end: int, limit: int = 550) -> str:
     return snippet[:limit]
 
 
-def split_clauses(text: str) -> list[Clause]:
-    """Recognise common legal numbering and avoid treating an irregular agreement as one clause."""
-    heading = re.compile(
-        r"(?mi)^\s*(?:(?:section|clause|article)\s+)?(?P<number>\d+(?:\.\d+){0,5}|[IVXLC]+|[A-Z])(?:\s*[.:)\-])?\s+(?P<title>[A-Z][^\n]{2,120})\s*$"
-    )
-    matches = list(heading.finditer(text))
-    if not matches:
-        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if len(part.strip()) >= 80]
-        if len(paragraphs) <= 1:
-            return [Clause("Unnumbered", "Agreement text", text, page_at(text, 0))]
-        clauses, cursor = [], 0
-        for index, paragraph in enumerate(paragraphs, start=1):
-            position = text.find(paragraph, cursor)
-            cursor = position + len(paragraph)
-            clauses.append(Clause(f"Unnumbered {index}", paragraph[:70].split(".")[0], paragraph, page_at(text, position)))
-        return clauses
+STRUCTURAL_TITLE_WORDS = {
+    "definitions", "scope", "services", "fees", "payment", "pricing", "term", "termination",
+    "renewal", "liability", "indemnity", "confidentiality", "data protection", "security",
+    "intellectual property", "audit", "compliance", "assignment", "subcontracting",
+    "governing law", "dispute resolution", "notices", "insurance", "service levels",
+    "restrictions", "publicity", "warranties", "general", "miscellaneous",
+}
 
+
+def heading_candidates(text: str) -> list[tuple[int, str, str]]:
+    """Find numbered and visually heading-like legal provisions from plain extracted text."""
+    numbered = re.compile(
+        r"(?mi)^\s*(?:(?:section|clause|article)\s+)?(?P<number>\d+(?:\.\d+){0,5}|[IVXLC]+|[A-Z])(?:\s*[.:)\-])?\s+(?P<title>[^\n]{3,120})\s*$"
+    )
+    candidates: dict[int, tuple[int, str, str]] = {}
+    for match in numbered.finditer(text):
+        title = match.group("title").strip()
+        if len(title.split()) <= 16 and not re.search(r"[.;!?]$", title):
+            candidates[match.start()] = (match.start(), match.group("number").rstrip("."), title)
+
+    lines = list(re.finditer(r"(?m)^([^\n]+)$", text))
+    for index, line in enumerate(lines):
+        position, title = line.start(), line.group(1).strip()
+        if position in candidates or not (3 <= len(title) <= 100) or len(title.split()) > 12:
+            continue
+        if re.search(r"[.;!?]$", title) or title.startswith("[Page "):
+            continue
+        lower = title.lower()
+        words = [word for word in re.findall(r"[A-Za-z]+", title) if word]
+        title_case_ratio = sum(word[0].isupper() for word in words) / len(words) if words else 0
+        known_heading = any(term in lower for term in STRUCTURAL_TITLE_WORDS)
+        all_caps = bool(letters := re.sub(r"[^A-Za-z]", "", title)) and letters.isupper()
+        next_text = ""
+        for later in lines[index + 1:]:
+            candidate = later.group(1).strip()
+            if candidate:
+                next_text = candidate
+                break
+        if (known_heading or all_caps or title_case_ratio >= 0.80) and len(next_text) >= 35:
+            candidates[position] = (position, "Heading-derived", title)
+    return [candidates[key] for key in sorted(candidates)]
+
+
+def derived_fragments(text: str) -> list[Clause]:
+    """Create traceable fragments only where the source supplies no usable provision boundaries."""
+    fragments, cursor, counter = [], 0, 0
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if len(part.strip()) >= 80]
+    for paragraph in paragraphs:
+        position = text.find(paragraph, cursor)
+        cursor = position + len(paragraph)
+        sentences = re.split(r"(?<=[.;!?])\s+(?=[A-Z])", paragraph)
+        buffer = ""
+        for sentence in sentences:
+            if buffer and len(buffer) + len(sentence) + 1 > 850:
+                counter += 1
+                fragments.append(Clause(f"Derived fragment {counter}", buffer[:85].split(".")[0], buffer, page_at(text, position)))
+                position += len(buffer)
+                buffer = sentence
+            else:
+                buffer = (buffer + " " + sentence).strip()
+        if len(buffer) >= 80:
+            counter += 1
+            fragments.append(Clause(f"Derived fragment {counter}", buffer[:85].split(".")[0], buffer, page_at(text, position)))
+    return fragments or [Clause("Derived fragment 1", "Agreement text", text, page_at(text, 0))]
+
+
+def split_clauses(text: str) -> list[Clause]:
+    headings = heading_candidates(text)
+    if not headings:
+        return derived_fragments(text)
     clauses = []
-    if text[:matches[0].start()].strip():
-        clauses.append(Clause("Preamble", "Agreement preamble", text[:matches[0].start()].strip(), page_at(text, 0)))
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        body = text[match.start():end].strip()
-        if len(body) >= 30:
-            clauses.append(Clause(match.group("number").rstrip("."), match.group("title").strip(), body, page_at(text, match.start())))
-    return clauses
+    first_start = headings[0][0]
+    if text[:first_start].strip():
+        clauses.append(Clause("Preamble", "Agreement preamble", text[:first_start].strip(), page_at(text, 0)))
+    heading_counts = {"Heading-derived": 0}
+    for index, (start, reference, title) in enumerate(headings):
+        end = headings[index + 1][0] if index + 1 < len(headings) else len(text)
+        body = text[start:end].strip()
+        if len(body) < 30:
+            continue
+        if reference == "Heading-derived":
+            heading_counts["Heading-derived"] += 1
+            reference = f"Heading-derived {heading_counts['Heading-derived']}"
+        clauses.append(Clause(reference, title, body, page_at(text, start)))
+    return clauses or derived_fragments(text)
+
+
+def structure_summary(clauses: list[Clause]) -> dict[str, int]:
+    return {
+        "numbered": sum(bool(re.match(r"^(?:\d|[IVXLC]+$|[A-Z]$)", clause.reference)) for clause in clauses),
+        "heading_derived": sum(clause.reference.startswith("Heading-derived") for clause in clauses),
+        "derived": sum(clause.reference.startswith("Derived fragment") for clause in clauses),
+    }
 
 def categorize(clause: Clause) -> str:
     for category, pattern in CATEGORY_PATTERNS.items():
@@ -275,6 +342,7 @@ def main() -> None:
                     "scorecard": {**scorecard, "priority_signals": [asdict(s) for s in scorecard["priority_signals"]]},
                     "memo": memo(mode, scorecard),
                     "coverage": len(text),
+                    "structure": structure_summary(clauses),
                 }
             st.success("Local deal radar complete.")
         except Exception as exc:
@@ -288,6 +356,11 @@ def main() -> None:
 
     scorecard, decision = result["scorecard"], result["memo"]
     st.caption(f"Full-document coverage: {result['coverage']:,} characters parsed locally; no text was truncated.")
+    structure = result.get("structure", {})
+    if structure.get("derived", 0):
+        st.warning(f"Document structure note: {structure['derived']} derived text fragment(s) were created because no reliable numbered or heading boundary was found. These are traceable review segments, not invented clause numbers.")
+    else:
+        st.caption(f"Structural extraction: {structure.get('numbered', 0)} numbered clause(s) and {structure.get('heading_derived', 0)} heading-derived clause(s).")
     memo_tab, signals_tab, terms_tab, clauses_tab, human_tab = st.tabs(["Decision memo", "Deal signals", "Key terms", "Clauses", "Human review"])
 
     with memo_tab:
